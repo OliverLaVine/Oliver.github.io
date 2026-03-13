@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>给清清小宝贝的每日刮刮乐 🎁</title>
+    <title>给清清小宝贝的每日刮刮乐 🎁（改良版）</title>
     <style>
         /* 全局样式重置 */
         * {
@@ -103,6 +103,12 @@
             box-shadow: none;
             transform: none;
         }
+        /* 新增：全部奖品抽完提示样式 */
+        .all-used-tip {
+            color: #e74c3c;
+            font-weight: bold;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -117,21 +123,21 @@
         
         <div class="prize-result" id="prizeResult">请用手指/鼠标刮开涂层</div>
         <p class="tip">提示：在刮刮乐区域滑动即可刮开，每天仅限一次哦</p>
+        <div class="all-used-tip" id="allUsedTip"></div>
         
         <button class="reset-btn" id="resetBtn" disabled>明天再来刮吧~</button>
+        <!-- 新增：重置黑名单按钮（全部奖品抽完后显示） -->
+        <button class="reset-btn" id="resetBlacklistBtn" style="display: none; margin-top: 10px;">重置所有奖品</button>
     </div>
 
     <script>
         // 0成本高甜奖品池（按概率权重分配，用心程度越高权重越低）
         const prizes = [
-            { name: "谢谢惠顾", weight: 20 },
             { name: "早安吻一枚（超长版）", weight: 8 },
-            { name: "睡前抱抱10分钟", weight: 8 },
             { name: "摸头杀+夸夸5分钟", weight: 7 },
             { name: "专属点歌一首（现场清唱）", weight: 7 },
             { name: "帮吹头发一次", weight: 6 },
             { name: "捏肩揉背15分钟", weight: 6 },
-            { name: "免生气一次（小事不追究）", weight: 5 },
             { name: "陪刷剧/综艺不玩手机", weight: 5 },
             { name: "帮剥水果一盘", weight: 5 },
             { name: "手写情话小纸条一张", weight: 4 },
@@ -149,32 +155,80 @@
             { name: "给对方写一封手写信", weight: 1 },
             { name: "策划一次10分钟的「惊喜小浪漫」", weight: 0.8 },
             { name: "一起回忆恋爱中的10个甜蜜瞬间", weight: 0.8 },
-            { name: "给对方的朋友圈写走心评论", weight: 0.7 },
-            { name: "约定一个只有两人知道的小暗号", weight: 0.7 },
-            { name: "一起制定下周的「甜蜜小计划」", weight: 0.7 },
-            { name: "给对方录一段「专属晚安语音」", weight: 0.5 },
-            { name: "完成对方的一个「小小心愿」", weight: 0.5 }
+            { name: "（三等奖）任选一个小蛋糕", weight: 5 },
+            { name: "（二等奖）面膜一盒", weight: 3 },
+            { name: "（一等奖）任选一件衣服", weight: 0.7 },
+            { name: "给对方录一段「专属晚安语音」", weight: 2.5 },
+            { name: "（特等奖）大疆Pocket3", weight: 0.3 }
         ];
 
         // 全局变量 - 记录今日中奖结果（防止重复抽奖）
         let todayPrize = null;
         let isPrizeGenerated = false; // 是否已生成今日奖品
 
-        // 加权随机抽奖（仅执行一次）
+        // 从本地存储获取奖品黑名单
+        function getPrizeBlacklist() {
+            const blacklistStr = localStorage.getItem('prizeBlacklist');
+            return blacklistStr ? JSON.parse(blacklistStr) : [];
+        }
+
+        // 将奖品加入黑名单
+        function addToBlacklist(prizeName) {
+            const blacklist = getPrizeBlacklist();
+            if (!blacklist.includes(prizeName)) {
+                blacklist.push(prizeName);
+                localStorage.setItem('prizeBlacklist', JSON.stringify(blacklist));
+            }
+        }
+
+        // 清空奖品黑名单
+        function clearBlacklist() {
+            localStorage.removeItem('prizeBlacklist');
+            document.getElementById('allUsedTip').textContent = '';
+            document.getElementById('resetBlacklistBtn').style.display = 'none';
+            // 重置今日刮奖状态
+            localStorage.removeItem('lastScratchDate');
+            localStorage.removeItem('lastPride');
+            checkTodayScratched();
+            resizeCanvas();
+            prizeResult.textContent = '请用手指/鼠标刮开涂层';
+            resetBtn.disabled = true;
+            todayPrize = null;
+            isPrizeGenerated = false;
+        }
+
+        // 加权随机抽奖（过滤黑名单，仅执行一次）
         function getRandomPrize() {
             if (isPrizeGenerated) return todayPrize; // 已生成则直接返回
             
-            let totalWeight = prizes.reduce((sum, prize) => sum + prize.weight, 0);
+            // 获取黑名单，过滤奖品池
+            const blacklist = getPrizeBlacklist();
+            const availablePrizes = prizes.filter(prize => !blacklist.includes(prize.name));
+            
+            // 检查是否所有奖品都已抽完
+            if (availablePrizes.length === 0) {
+                todayPrize = "所有奖品都抽完啦！点击下方按钮重置~";
+                isPrizeGenerated = true;
+                document.getElementById('allUsedTip').textContent = "🎊 恭喜你抽完所有奖品啦！";
+                document.getElementById('resetBlacklistBtn').style.display = 'block';
+                return todayPrize;
+            }
+            
+            // 计算可用奖品的总权重
+            let totalWeight = availablePrizes.reduce((sum, prize) => sum + prize.weight, 0);
             let random = Math.random() * totalWeight;
             let currentWeight = 0;
-            for (let prize of prizes) {
+            
+            for (let prize of availablePrizes) {
                 currentWeight += prize.weight;
                 if (random <= currentWeight) {
                     todayPrize = prize.name;
                     isPrizeGenerated = true; // 标记已生成
+                    addToBlacklist(prize.name); // 加入黑名单
                     return todayPrize;
                 }
             }
+            
             todayPrize = "谢谢惠顾";
             isPrizeGenerated = true;
             return todayPrize;
@@ -186,6 +240,7 @@
         const prizeResult = document.getElementById('prizeResult');
         const resetBtn = document.getElementById('resetBtn');
         const bgImage = document.getElementById('bgImage');
+        const resetBlacklistBtn = document.getElementById('resetBlacklistBtn');
 
         // 设置canvas尺寸（响应式）
         function resizeCanvas() {
@@ -234,7 +289,7 @@
         // 检查刮开面积，显示结果（刮开50%以上显示奖品）
         function checkScratched() {
             // 如果已经显示奖品，直接返回
-            if (prizeResult.textContent.includes('恭喜你获得')) return;
+            if (prizeResult.textContent.includes('恭喜你获得') || prizeResult.textContent.includes('所有奖品都抽完')) return;
             
             try {
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -246,18 +301,29 @@
                 const percent = (transparentPixels / (canvas.width * canvas.height)) * 100;
                 if (percent > 50) {
                     const prize = getRandomPrize(); // 仅首次执行时生成奖品
-                    prizeResult.textContent = `🎉 恭喜你获得：${prize} 🎉`;
-                    resetBtn.disabled = false;
-                    // 记录刮奖日期到本地存储
-                    localStorage.setItem('lastScratchDate', new Date().toDateString());
-					localStorage.setItem('lastPride', prize);
+                    if (prize.includes('所有奖品都抽完')) {
+                        prizeResult.textContent = prize;
+                        resetBtn.disabled = true;
+                    } else {
+                        prizeResult.textContent = `🎉 恭喜你获得：${prize} 🎉`;
+                        resetBtn.disabled = false;
+                        // 记录刮奖日期到本地存储
+                        localStorage.setItem('lastScratchDate', new Date().toDateString());
+                        localStorage.setItem('lastPride', prize);
+                    }
                 }
             } catch (e) {
                 // 兼容跨域canvas读取问题
                 const prize = getRandomPrize(); // 仅首次执行时生成奖品
-                prizeResult.textContent = `🎉 恭喜你获得：${prize} 🎉`;
-                resetBtn.disabled = false;
-                localStorage.setItem('lastScratchDate', new Date().toDateString());
+                if (prize.includes('所有奖品都抽完')) {
+                    prizeResult.textContent = prize;
+                    resetBtn.disabled = true;
+                } else {
+                    prizeResult.textContent = `🎉 恭喜你获得：${prize} 🎉`;
+                    resetBtn.disabled = false;
+                    localStorage.setItem('lastScratchDate', new Date().toDateString());
+                    localStorage.setItem('lastPride', prize);
+                }
             }
         }
 
@@ -266,7 +332,7 @@
             const lastDate = localStorage.getItem('lastScratchDate');
             const today = new Date().toDateString();
             if (lastDate === today) {
-				const lastPride = localStorage.getItem('lastPride');
+                const lastPride = localStorage.getItem('lastPride');
                 prizeResult.textContent = `🎉 今天已经中奖: ${lastPride}，明天再来吧~`;
                 resetBtn.disabled = false;
                 canvas.style.display = 'none';
@@ -277,6 +343,15 @@
                 // 重置奖品状态
                 todayPrize = null;
                 isPrizeGenerated = false;
+                
+                // 检查是否所有奖品都已抽完
+                const blacklist = getPrizeBlacklist();
+                if (blacklist.length >= prizes.length) {
+                    prizeResult.textContent = "所有奖品都抽完啦！点击下方按钮重置~";
+                    document.getElementById('allUsedTip').textContent = "🎊 恭喜你抽完所有奖品啦！";
+                    document.getElementById('resetBlacklistBtn').style.display = 'block';
+                    resetBtn.disabled = true;
+                }
             }
         }
 
@@ -293,6 +368,13 @@
                 isPrizeGenerated = false;
             } else {
                 alert('今天已经刮过啦，明天再来吧~');
+            }
+        });
+
+        // 重置黑名单按钮逻辑
+        resetBlacklistBtn.addEventListener('click', () => {
+            if (confirm('确定要重置所有奖品吗？重置后可以重新抽取所有奖品哦~')) {
+                clearBlacklist();
             }
         });
 
